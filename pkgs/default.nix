@@ -17435,6 +17435,7 @@ license = stdenv.lib.licenses.mit;
 , cardano-report-server
 , cardano-sl
 , cardano-sl-binary
+, cardano-sl-binary-test
 , cardano-sl-block
 , cardano-sl-client
 , cardano-sl-core
@@ -17446,6 +17447,7 @@ license = stdenv.lib.licenses.mit;
 , cardano-sl-txp
 , cardano-sl-update
 , cardano-sl-util
+, cardano-sl-util-test
 , cardano-sl-wallet
 , containers
 , cpphs
@@ -17456,6 +17458,7 @@ license = stdenv.lib.licenses.mit;
 , filepath
 , formatting
 , Glob
+, hedgehog
 , hourglass
 , hspec
 , lens
@@ -17504,14 +17507,39 @@ configureFlags = [
 isLibrary = true;
 isExecutable = true;
 libraryHaskellDepends = [
+acid-state-exts
 aeson
+ansi-terminal
 base
+bytestring
+cardano-sl
+cardano-sl-client
+cardano-sl-core
+cardano-sl-core-test
+cardano-sl-db
+cardano-sl-infra
+cardano-sl-networking
+cardano-sl-txp
+cardano-sl-util
+cardano-sl-wallet
+containers
+data-default
 directory
 filepath
+log-warper
+network-transport-tcp
+optparse-applicative
+optparse-generic
 parsers
+QuickCheck
+stm
+string-conv
 text
+time
+time-units
 trifecta
 universum
+unordered-containers
 ];
 executableHaskellDepends = [
 acid-state-exts
@@ -17586,9 +17614,13 @@ cpphs
 testHaskellDepends = [
 aeson
 base
+cardano-sl-binary-test
+cardano-sl-util-test
 directory
+hedgehog
 hspec
 temporary
+universum
 ];
 testToolDepends = [
 cpphs
