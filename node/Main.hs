@@ -14,12 +14,13 @@ import           Data.Maybe (fromJust)
 import           Mockable (Production (..), runProduction)
 import           System.Wlog (LoggerName, logInfo)
 
+import           Ntp.Client (NtpConfiguration)
+
 import           Pos.Binary ()
 import           Pos.Client.CLI (CommonNodeArgs (..), NodeArgs (..),
                      SimpleNodeArgs (..))
 import qualified Pos.Client.CLI as CLI
 import           Pos.Crypto (ProtocolMagic)
-import           Pos.Infra.Ntp.Configuration (NtpConfiguration)
 import           Pos.Launcher (HasConfigurations, NodeParams (..),
                      loggerBracket, runNodeReal, withConfigurations)
 import           Pos.Launcher.Configuration (AssetLockPath (..))

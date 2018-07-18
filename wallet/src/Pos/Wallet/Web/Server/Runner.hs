@@ -21,9 +21,10 @@ import           Control.Monad.Except (MonadError (throwError))
 import qualified Control.Monad.Reader as Mtl
 import           Mockable (Production (..), runProduction)
 import           Network.Wai (Application)
-import           Ntp.Client (NtpStatus)
 import           Servant.Server (Handler)
 import           System.Wlog (logInfo, usingLoggerName)
+
+import           Ntp.Client (NtpStatus)
 
 import           Cardano.NodeIPC (startNodeJsIPC)
 import           Pos.Core.NetworkAddress (NetworkAddress)
