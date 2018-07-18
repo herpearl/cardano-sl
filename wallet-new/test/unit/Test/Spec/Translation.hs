@@ -12,7 +12,7 @@ import           Serokell.Util (mapJson)
 import           Test.Hspec.QuickCheck
 
 import qualified Pos.Block.Error as Cardano
-import           Pos.Core (Coeff (..), SlotCount, TxSizeLinear (..), getCoin)
+import           Pos.Core (Coeff (..), SlotCount, TxSizeLinear (..))
 import qualified Pos.Txp.Toil as Cardano
 
 import           Test.Infrastructure.Generator
@@ -66,10 +66,10 @@ spec = do
   Example hand-constructed chains
 -------------------------------------------------------------------------------}
 
-emptyBlock :: GenesisValues h -> Chain h a
+emptyBlock :: GenesisValues h a -> Chain h a
 emptyBlock _ = OldestFirst [OldestFirst []]
 
-oneTrans :: Hash h Addr => GenesisValues h -> Chain h Addr
+oneTrans :: Hash h Addr => GenesisValues h Addr -> Chain h Addr
 oneTrans GenesisValues{..} = OldestFirst [OldestFirst [t1]]
   where
     fee1 = overestimate txFee 1 2
@@ -77,15 +77,15 @@ oneTrans GenesisValues{..} = OldestFirst [OldestFirst [t1]]
                trFresh = 0
              , trFee   = fee1
              , trHash  = 1
-             , trIns   = Set.fromList [ Input hashBoot 0 ] -- rich 0
+             , trIns   = Set.fromList [ fst initUtxoR0 ]
              , trOuts  = [ Output r1 1000
-                         , Output r0 (initR0 - 1000 - fee1)
+                         , Output r0 (initBalR0 - 1000 - fee1)
                          ]
              , trExtra = ["t1"]
              }
 
 -- | Try to transfer from R0 to R1, but leaving R0's balance the same
-overspend :: Hash h Addr => GenesisValues h -> Chain h Addr
+overspend :: Hash h Addr => GenesisValues h Addr -> Chain h Addr
 overspend GenesisValues{..} = OldestFirst [OldestFirst [t1]]
   where
     fee1 = overestimate txFee 1 2
@@ -93,15 +93,15 @@ overspend GenesisValues{..} = OldestFirst [OldestFirst [t1]]
                trFresh = 0
              , trFee   = fee1
              , trHash  = 1
-             , trIns   = Set.fromList [ Input hashBoot 0 ] -- rich 0
+             , trIns   = Set.fromList [ fst initUtxoR0 ]
              , trOuts  = [ Output r1 1000
-                         , Output r0 initR0
+                         , Output r0 initBalR0
                          ]
              , trExtra = ["t1"]
              }
 
 -- | Try to transfer to R1 and R2 using the same output
-doublespend :: Hash h Addr => GenesisValues h -> Chain h Addr
+doublespend :: Hash h Addr => GenesisValues h Addr -> Chain h Addr
 doublespend GenesisValues{..} = OldestFirst [OldestFirst [t1, t2]]
   where
     fee1 = overestimate txFee 1 2
@@ -109,9 +109,9 @@ doublespend GenesisValues{..} = OldestFirst [OldestFirst [t1, t2]]
                trFresh = 0
              , trFee   = fee1
              , trHash  = 1
-             , trIns   = Set.fromList [ Input hashBoot 0 ] -- rich 0
+             , trIns   = Set.fromList [ fst initUtxoR0 ]
              , trOuts  = [ Output r1 1000
-                         , Output r0 (initR0 - 1000 - fee1)
+                         , Output r0 (initBalR0 - 1000 - fee1)
                          ]
              , trExtra = ["t1"]
              }
@@ -121,9 +121,9 @@ doublespend GenesisValues{..} = OldestFirst [OldestFirst [t1, t2]]
                trFresh = 0
              , trFee   = fee2
              , trHash  = 2
-             , trIns   = Set.fromList [ Input hashBoot 0 ] -- rich 0
+             , trIns   = Set.fromList [ fst initUtxoR0 ]
              , trOuts  = [ Output r2 1000
-                         , Output r0 (initR0 - 1000 - fee2)
+                         , Output r0 (initBalR0 - 1000 - fee2)
                          ]
              , trExtra = ["t2"]
              }
@@ -141,7 +141,7 @@ doublespend GenesisValues{..} = OldestFirst [OldestFirst [t1, t2]]
 -- Transaction 5 in example 1 is a transaction /from/ the treasury /to/ an
 -- ordinary address. This currently has no equivalent in Cardano, so we omit
 -- it.
-example1 :: Hash h Addr => GenesisValues h -> Chain h Addr
+example1 :: Hash h Addr => GenesisValues h Addr -> Chain h Addr
 example1 GenesisValues{..} = OldestFirst [OldestFirst [t3, t4]]
   where
     fee3 = overestimate txFee 1 2
@@ -149,9 +149,9 @@ example1 GenesisValues{..} = OldestFirst [OldestFirst [t3, t4]]
                trFresh = 0
              , trFee   = fee3
              , trHash  = 3
-             , trIns   = Set.fromList [ Input hashBoot 0 ] -- rich 0
+             , trIns   = Set.fromList [ fst initUtxoR0 ]
              , trOuts  = [ Output r1 1000
-                         , Output r0 (initR0 - 1000 - fee3)
+                         , Output r0 (initBalR0 - 1000 - fee3)
                          ]
              , trExtra = ["t3"]
              }
@@ -162,19 +162,20 @@ example1 GenesisValues{..} = OldestFirst [OldestFirst [t3, t4]]
              , trFee   = fee4
              , trHash  = 4
              , trIns   = Set.fromList [ Input (hash t3) 1 ]
-             , trOuts  = [ Output r2 (initR0 - 1000 - fee3 - fee4) ]
+             , trOuts  = [ Output r2 (initBalR0 - 1000 - fee3 - fee4) ]
              , trExtra = ["t4"]
              }
 
 
 -- | Chain that spans epochs
-spanEpochs :: forall h. Hash h Addr => SlotCount -> GenesisValues h -> Chain h Addr
+spanEpochs :: forall h. Hash h Addr
+           => SlotCount -> GenesisValues h Addr -> Chain h Addr
 spanEpochs epochSlots GenesisValues{..} = OldestFirst $
     go 1
-       (Input hashBoot 0)
-       (Input hashBoot 1)
-       initR0
-       initR1
+       (fst initUtxoR0)
+       (fst initUtxoR1)
+       initBalR0
+       initBalR1
        (2 * fromIntegral epochSlots) -- 5 epochs
   where
     go :: Int           -- Next available hash
@@ -226,17 +227,12 @@ spanEpochs epochSlots GenesisValues{..} = OldestFirst $
     fee = overestimate txFee 1 2
 
 
--- | Over-estimate the total fee, by assuming the resulting transaction is
---   as large as possible for the given number of inputs and outputs.
-overestimate :: (Int -> [Value] -> Value) -> Int -> Int -> Value
-overestimate getFee ins outs = getFee ins (replicate outs (getCoin maxBound))
-
 {-------------------------------------------------------------------------------
   Verify chain
 -------------------------------------------------------------------------------}
 
 intAndVerifyPure :: TxSizeLinear
-                 -> (GenesisValues GivenHash -> Chain GivenHash Addr)
+                 -> (GenesisValues GivenHash Addr -> Chain GivenHash Addr)
                  -> ValidationResult GivenHash Addr
 intAndVerifyPure txSizeLinear pc = runIdentity $ intAndVerify (Identity . pc . genesisValues txSizeLinear)
 

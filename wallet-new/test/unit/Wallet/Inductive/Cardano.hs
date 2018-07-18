@@ -81,62 +81,78 @@ data InductiveCtxt h = InductiveCtxt {
     }
 
 -- | Interpreter for inductive wallets using the translated Cardano types
+--
+-- Returns the final wallet as well as the "interpretation state checkpoints"
+-- (to support any further rollback).
 interpretT :: forall h e m. (Monad m, Hash h Addr)
            => (DSL.Transaction h Addr -> Wallet h Addr)
            -> EventCallbacks h (TranslateT e m)
            -> Inductive h Addr
-           -> TranslateT (Either IntException e) m (Wallet h Addr, IntCtxt h)
+           -> TranslateT (Either IntException e) m
+                (Wallet h Addr, NewestFirst NonEmpty (IntCtxt h))
 interpretT mkWallet EventCallbacks{..} Inductive{..} =
     goBoot inductiveBoot
   where
     goBoot :: DSL.Transaction h Addr
-           -> TranslateT (Either IntException e) m (Wallet h Addr, IntCtxt h)
+           -> TranslateT (Either IntException e) m
+                (Wallet h Addr, NewestFirst NonEmpty (IntCtxt h))
     goBoot boot = do
         let w' = mkWallet boot
-        initCtxt <- mapTranslateErrors Left $ initIntCtxt boot
-        runIntT initCtxt $ do
-          let history = NewestFirst []
-          utxo' <- int (utxo w') -- translating UTxO does not change the state
-          let ctxt = InductiveCtxt (toOldestFirst history) initCtxt w'
-          accountId <- liftTranslate $ walletBootT ctxt utxo'
-          goEvents accountId history w' (getOldestFirst inductiveEvents)
+        intCtxt0 <- mapTranslateErrors Left $ initIntCtxt boot
+        let history = NewestFirst []
+        -- translating UTxO does not change the state
+        (utxo', _intCtxt1) <- runIntT intCtxt0 $ int (utxo w')
+        accountId <- mapTranslateErrors Right $ withConfig $ do
+          let indCtxt = InductiveCtxt (toOldestFirst history) intCtxt0 w'
+          walletBootT indCtxt utxo'
+        goEvents accountId
+                 (NewestFirst (intCtxt0 :| []))
+                 history
+                 w'
+                 (getOldestFirst inductiveEvents)
 
     goEvents :: HD.HdAccountId
+             -> NewestFirst NonEmpty (IntCtxt h)
              -> NewestFirst [] (WalletEvent h Addr)
              -> Wallet h Addr
              -> [WalletEvent h Addr]
-             -> IntT h e m (Wallet h Addr)
+             -> TranslateT (Either IntException e) m
+                  (Wallet h Addr, NewestFirst NonEmpty (IntCtxt h))
     goEvents accountId = go
       where
-        go :: NewestFirst [] (WalletEvent h Addr)
+        go :: NewestFirst NonEmpty (IntCtxt h)
+           -> NewestFirst [] (WalletEvent h Addr)
            -> Wallet h Addr
            -> [WalletEvent h Addr]
-           -> IntT h e m (Wallet h Addr)
-        go _ w [] =
-            return w
-        go history w (ApplyBlock b:es) = do
+           -> TranslateT (Either IntException e) m
+                (Wallet h Addr, NewestFirst NonEmpty (IntCtxt h))
+        go ctxts _ w [] =
+            return (w, ctxts)
+        go (NewestFirst (ic :| checkpoints)) history w (ApplyBlock b:es) = do
             let history' = liftNewestFirst (ApplyBlock b :) history
                 w'       = applyBlock w b
-            b' <- int b
-            ic <- get
-            let ctxt = InductiveCtxt (toOldestFirst history') ic w'
-            liftTranslate $ walletApplyBlockT ctxt accountId b'
-            go history' w' es
-        go history w (NewPending t:es) = do
+            (b', ic') <- runIntT ic $ int b
+            mapTranslateErrors Right $ withConfig $ do
+              let indCtxt = InductiveCtxt (toOldestFirst history') ic' w'
+              walletApplyBlockT indCtxt accountId b'
+            go (NewestFirst (ic' :| ic : checkpoints)) history' w' es
+        go (NewestFirst (ic :| checkpoints)) history w (NewPending t:es) = do
             let history'  = liftNewestFirst (NewPending t :) history
                 (Just w') = newPending w t
-            t' <- int t
-            ic <- get
-            let ctxt = InductiveCtxt (toOldestFirst history') ic w'
-            liftTranslate $ walletNewPendingT ctxt accountId t'
-            go history' w' es
-        go history w (Rollback:es) = do
+            (t', ic') <- runIntT ic $ int t
+            mapTranslateErrors Right $ withConfig $ do
+              let indCtxt = InductiveCtxt (toOldestFirst history') ic' w'
+              walletNewPendingT indCtxt accountId t'
+            go (NewestFirst (ic' :| ic : checkpoints)) history' w' es
+        go (NewestFirst (_ic :| ic' : checkpoints)) history w (Rollback:es) = do
             let history' = liftNewestFirst (Rollback :) history
                 w'       = rollback w
-            ic <- get
-            let ctxt = InductiveCtxt (toOldestFirst history') ic w'
-            liftTranslate $ walletRollbackT ctxt accountId
-            go history' w' es
+            mapTranslateErrors Right $ withConfig $ do
+              let indCtxt = InductiveCtxt (toOldestFirst history') ic' w'
+              walletRollbackT indCtxt accountId
+            go (NewestFirst (ic' :| checkpoints)) history' w' es
+        go (NewestFirst (_ic :| [])) _ _ (Rollback:_) =
+            error "interpretT: rollback without checkpoints"
 
 {-------------------------------------------------------------------------------
   Equivalence check between the real implementation and (a) pure wallet
@@ -206,7 +222,9 @@ equivalentT activeWallet esk = \mkWallet w ->
     walletRollbackT :: InductiveCtxt h
                     -> HD.HdAccountId
                     -> TranslateT (EquivalenceViolation h) m ()
-    walletRollbackT _ _ = error "walletRollbackT: TODO"
+    walletRollbackT ctxt accountId = do
+        liftIO $ Kernel.observableRollbackUseInTestsOnly passiveWallet
+        checkWalletState ctxt accountId
 
     checkWalletState :: InductiveCtxt h
                      -> HD.HdAccountId

@@ -80,6 +80,10 @@ instance Buildable IntException where
 -------------------------------------------------------------------------------}
 
 -- | Interpretation context
+--
+-- NOTE: Interpretation is stateful, and this state depends on the blockchain.
+-- The 'IntCtxt' should be threaded through carefully (especially in the
+-- presence of rollbacks).
 data IntCtxt h = IntCtxt {
       -- | Ledger we have interpreted so far
       --
